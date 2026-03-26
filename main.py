@@ -7,7 +7,7 @@ import random
 
 # disk paths
 female_path = '/content/drive/MyDrive/dataset/ludzie/Female_Faces'
-male_path = '/content/drive/MyDrive/dataset/ludzie/Male_Faces'
+male_path   = '/content/drive/MyDrive/dataset/ludzie/Male_Faces'
 
 output_base = '/content/drive/MyDrive/dataset/ludzie/Noisy'
 os.makedirs(f'{output_base}/Female_Faces', exist_ok=True)
@@ -77,7 +77,7 @@ def add_random_patches(img_array, n_patches=15, patch_size_range=(20, 60)):
         elif fill_type == 'gray':
             fill = random.randint(80, 180)
         else:
-            fill = np.random.randint(0, 255, 3)  
+            fill = np.random.randint(0, 255, 3)
 
         noisy[y:y+ph, x:x+pw] = fill
 
@@ -96,7 +96,7 @@ def add_blob_corruption(img_array, n_blobs=8, max_radius=45):
         Y, X   = np.ogrid[:h, :w]
         ry, rx = r * random.uniform(0.5, 1.5), r * random.uniform(0.5, 1.5)
         dist   = ((Y - cy) / ry) ** 2 + ((X - cx) / rx) ** 2
-        mask   = np.clip(1.0 - dist, 0, 1) 
+        mask   = np.clip(1.0 - dist, 0, 1)
 
         fill = random.choice([0.0, 255.0, float(random.randint(60, 200))])
 
@@ -104,6 +104,21 @@ def add_blob_corruption(img_array, n_blobs=8, max_radius=45):
             noisy[:, :, c] = noisy[:, :, c] * (1 - mask) + fill * mask
 
     return np.clip(noisy, 0, 255).astype(np.uint8)
+
+def add_digit_corruption(img_array, corruption_rate=0.15):
+    """
+    Randomly overwrites bytes with the number 0-9.
+    Corruption_rate=0.15 ->15% of bytes are 0-9 instead of 0-255.
+
+    Result: dark dots/areas because the values ​​0-9 are almost black.
+    """
+    flat = img_array.flatten().copy()
+    n_corrupt = int(len(flat) * corruption_rate)
+
+    corrupt_indices = np.random.choice(len(flat), n_corrupt, replace=False)
+    flat[corrupt_indices] = np.random.randint(0, 10, n_corrupt).astype(np.uint8)
+
+    return flat.reshape(img_array.shape)
 
 # mapping
 
@@ -113,21 +128,12 @@ NOISE_TYPES = {
     'blur':        lambda img, arr: add_blur(img, radius=4),
     'bit_depth':   lambda img, arr: reduce_bit_depth(arr, bits=2),
     'bit_corrupt': lambda img, arr: add_random_bit_corruption(arr, corruption_rate=0.15),
-    'patches':     lambda img, arr: add_random_patches(arr, n_patches=15),       
-    'blobs':       lambda img, arr: add_blob_corruption(arr, n_blobs=8),         
+    'patches':     lambda img, arr: add_random_patches(arr, n_patches=15),
+    'blobs':       lambda img, arr: add_blob_corruption(arr, n_blobs=8),
+    'digit_corrupt':  lambda img, arr: add_digit_corruption(arr, corruption_rate=0.15),
     'combined':    lambda img, arr: add_combined_noise(img, arr),
 }
 
-def add_combined_noise(img, img_array):
-    """blur -> gaussian -> salt&pepper -> bit depth -> bit corrupt -> patches -> blobs"""
-    blurred = add_blur(img, radius=3)
-    gaussed = add_gaussian_noise(blurred, std=45)
-    salted = add_salt_and_pepper(gaussed, amount=0.10)
-    quantized = reduce_bit_depth(salted, bits=2)
-    corrupted = add_random_bit_corruption(quantized, corruption_rate=0.10)
-    patched = add_random_patches(corrupted, n_patches=8)                       
-    destroyed = add_blob_corruption(patched, n_blobs=5)                          
-    return destroyed
 
 #process
 
@@ -140,62 +146,114 @@ def process_dataset(input_path, output_path):
         img  = Image.open(src).convert('RGB')
         arr  = np.array(img)
         noise_type = random.choice(list(NOISE_TYPES.keys()))
-        noisy_arr  = NOISE_TYPES[noise_type](img, arr)
-        stem, ext  = os.path.splitext(fname)
+        noisy_arr = NOISE_TYPES[noise_type](img, arr)
+        stem, ext = os.path.splitext(fname)
         Image.fromarray(noisy_arr).save(os.path.join(output_path, f"{stem}__{noise_type}{ext}"))
 
 
-# visualization
+CORRUPTION_LEVELS = {
+    'light': [                          #soft
+        ('gaussian', 0.6),
+        ('blur', 0.5),
+        ('salt_pepper',0.3),
+    ],
+    'medium': [                         # medium
+        ('gaussian', 0.7),
+        ('blur', 0.5),
+        ('salt_pepper', 0.5),
+        ('bit_depth', 0.4),
+        ('patches', 0.4),
+    ],
+    'heavy': [                          # rough
+        ('gaussian', 0.9),
+        ('salt_pepper', 0.8),
+        ('blur', 0.7),
+        ('bit_depth', 0.8),
+        ('bit_corrupt', 0.7),
+        ('patches', 0.7),
+        ('blobs', 0.6),
+        ('digit_corrupt', 0.5),
+    ],
+}
 
-sample_path = os.path.join(female_path, os.listdir(female_path)[0])
-sample_img  = Image.open(sample_path).convert('RGB')
-sample_arr  = np.array(sample_img)
+# levels
+LEVEL_WEIGHTS = {'light': 0.35, 'medium': 0.40, 'heavy': 0.25}
 
-titles = ['Original', 'Gaussian', 'Salt & Pepper', 'Blur',
-          'Bit Depth', 'Bit Corrupt', 'Patches', 'Blobs', 'Combined']
-images = [
-    sample_arr,
-    add_gaussian_noise(sample_arr, 60),
-    add_salt_and_pepper(sample_arr, 0.15),
-    add_blur(sample_img, 4),
-    reduce_bit_depth(sample_arr, bits=2),
-    add_random_bit_corruption(sample_arr, 0.15),
-    add_random_patches(sample_arr, n_patches=15),
-    add_blob_corruption(sample_arr, n_blobs=8),
-    add_combined_noise(sample_img, sample_arr),
-]
+# params per level
+NOISE_PARAMS = {
+    'light':  dict(gaussian_std=25,  blur_radius=2, sp_amount=0.05, bit_bits=4, patch_n=4,  blob_n=2,  corrupt_rate=0.05, digit_rate=0.05),
+    'medium': dict(gaussian_std=45,  blur_radius=3, sp_amount=0.10, bit_bits=3, patch_n=8,  blob_n=5,  corrupt_rate=0.10, digit_rate=0.10),
+    'heavy':  dict(gaussian_std=70,  blur_radius=5, sp_amount=0.18, bit_bits=2, patch_n=15, blob_n=10, corrupt_rate=0.20, digit_rate=0.20),
+}
 
-# fig, axes = plt.subplots(1, 9, figsize=(36, 4))
-# for ax, img_data, title in zip(axes, images, titles):
-#     ax.imshow(img_data)
-#     ax.set_title(title, fontsize=9)
-#     ax.axis('off')
-
-# plt.tight_layout()
-# plt.show()
-
-def add_all_noise(img, img_array):
-    """All types of noise on one picture"""
+def apply_corruption_level(img, img_array, level='medium'):
     arr = img_array.copy()
-    arr = add_gaussian_noise(arr, std=60)
-    arr = add_salt_and_pepper(arr, amount=0.15)
-    # blur wymaga obiektu PIL Image, więc konwertujemy w locie
-    arr = add_blur(Image.fromarray(arr), radius=4)
-    arr = reduce_bit_depth(arr, bits=2)
-    arr = add_random_bit_corruption(arr, corruption_rate=0.15)
-    arr = add_random_patches(arr, n_patches=15)
-    arr = add_blob_corruption(arr, n_blobs=8)
+    p = NOISE_PARAMS[level]
+    funcs = CORRUPTION_LEVELS[level]
+
+    for noise_type, prob in funcs:
+        if random.random() > prob:
+            continue
+
+        if noise_type == 'gaussian':
+            arr = add_gaussian_noise(arr, std=p['gaussian_std'])
+        elif noise_type == 'blur':
+            arr = add_blur(Image.fromarray(arr), radius=p['blur_radius'])
+        elif noise_type == 'salt_pepper':
+            arr = add_salt_and_pepper(arr, amount=p['sp_amount'])
+        elif noise_type == 'bit_depth':
+            arr = reduce_bit_depth(arr, bits=p['bit_bits'])
+        elif noise_type == 'bit_corrupt':
+            arr = add_random_bit_corruption(arr, corruption_rate=p['corrupt_rate'])
+        elif noise_type == 'patches':
+            arr = add_random_patches(arr, n_patches=p['patch_n'])
+        elif noise_type == 'blobs':
+            arr = add_blob_corruption(arr, n_blobs=p['blob_n'])
+        elif noise_type == 'digit_corrupt':
+            arr = add_digit_corruption(arr, corruption_rate=p['digit_rate'])
+
     return arr
 
+# train test split save
 
-full_destroyed = add_all_noise(sample_img, sample_arr)
+from sklearn.model_selection import train_test_split
 
-fig, axes = plt.subplots(1, 2, figsize=(10, 5))
-axes[0].imshow(sample_arr); axes[0].set_title('Original', fontsize=13)
-axes[1].imshow(full_destroyed); axes[1].set_title('Full noise', fontsize=13)
-for ax in axes:
-    ax.axis('off')
+def process_dataset_split(input_path, gender, test_size=0.2):
+    files = [f for f in os.listdir(input_path)
+             if f.lower().endswith(('.jpg', '.jpeg', '.png', '.bmp', '.webp'))]
 
-plt.suptitle('original vs full noise', fontsize=15, fontweight='bold')
-plt.tight_layout()
-plt.show()
+    train_files, test_files = train_test_split(files, test_size=test_size, random_state=42)
+
+    for split, split_files in [('train', train_files), ('test', test_files)]:
+
+
+        noisy_out = f'{output_base}/{split}/noisy/{gender}'
+        clean_out = f'{output_base}/{split}/clean/{gender}'
+        os.makedirs(noisy_out, exist_ok=True)
+        os.makedirs(clean_out, exist_ok=True)
+
+        print(f"\n[{split.upper()}] {gender}: {len(split_files)} zdjęć")
+
+        for fname in tqdm(split_files):
+            src = os.path.join(input_path, fname)
+            img = Image.open(src).convert('RGB')
+            arr = np.array(img)
+
+            level = random.choices(
+                list(LEVEL_WEIGHTS.keys()),
+                weights=list(LEVEL_WEIGHTS.values())
+            )[0]
+
+            noisy_arr = apply_corruption_level(img, arr, level=level)
+
+            stem, ext = os.path.splitext(fname)
+            out_name  = f"{stem}__{level}{ext}"
+
+            Image.fromarray(noisy_arr).save(os.path.join(noisy_out, out_name))
+            Image.fromarray(arr).save(os.path.join(clean_out, out_name))   # ← ta sama nazwa!
+
+process_dataset_split(female_path, 'Female_Faces')
+process_dataset_split(male_path,   'Male_Faces')
+
+print("Done.")
+
