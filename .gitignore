@@ -5,6 +5,10 @@ venv/
 __pycache__/
 .pytest_cache/
 
+moje zadania.txt
+wykres_wiek.png
+thesis.pdf
+
 
 
 #pip freeze > requirements.txt
