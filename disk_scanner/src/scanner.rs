@@ -24,6 +24,9 @@ pub fn scan(path: &str, chunk_size: usize) -> std::io::Result<()> {
     let mut output: Option<File> = None;
     let mut current_size: usize = 0;
 
+    let mut header_buffer: Vec<u8> = Vec::with_capacity(12);
+    let mut saw_valid_segment = false;
+
     loop{
         let bytes_read = reader.read(&mut buffer)?;
 
@@ -31,16 +34,17 @@ pub fn scan(path: &str, chunk_size: usize) -> std::io::Result<()> {
             break;
         }
 
-        process_chunk(&buffer[..bytes_read], last_byte, &mut current_state, &mut output, &mut file_index, &mut current_size);
+        process_chunk(&buffer[..bytes_read], last_byte, &mut current_state, &mut output, &mut file_index, &mut current_size, &mut header_buffer, &mut saw_valid_segment);
         last_byte = buffer[bytes_read - 1];
     }
     Ok(())
 }
 
-fn process_chunk(chunk: &[u8], last_byte: u8, current_state: &mut State, output: &mut Option<File>, file_index: &mut usize, current_size: &mut usize) {
+fn process_chunk(chunk: &[u8], last_byte: u8, current_state: &mut State, output: &mut Option<File>, file_index: &mut usize, current_size: &mut usize,
+header_buffer: &mut Vec<u8>, saw_valid_segment: &mut bool) {
     let mut skip_next = false;
 
-    if compare_to_marker(last_byte, chunk[0], current_state, output, file_index) {
+    if compare_to_marker(last_byte, chunk[0], current_state, output, file_index, current_size, header_buffer, saw_valid_segment) {
         println!("{:?}, Chunk at boundary", current_state);
     }
 
@@ -53,16 +57,33 @@ fn process_chunk(chunk: &[u8], last_byte: u8, current_state: &mut State, output:
         let x = chunk[i];
         let y = chunk[i + 1];
 
-        let is_marker = compare_to_marker(x, y, current_state, output, file_index);
+        let is_marker = compare_to_marker(x, y, current_state, output, file_index, current_size, header_buffer, saw_valid_segment);
 
         if is_marker{
             skip_next = true;
         }
 
         if *current_state == State::COLLECTING && !is_marker && !skip_next{
+            if header_buffer.len() < 12 {
+                header_buffer.push(x);
+
+                if header_buffer.len() == 12 && !validate_header(header_buffer) {
+                    let _ = std::fs::remove_file(format!("image_{:04}.jpg", file_index));
+                    *output = None;
+                    *current_state = State::SEARCHING;
+                    *current_size = 0;
+                    header_buffer.clear();
+                    return;
+                }
+            }
+
+            if x == 0xFF && (y == 0xE0 || y == 0xE1) {
+                *saw_valid_segment = true;
+            }
+
             if let Some(file) = output.as_mut() {
 
-                if *current_size >= MAX_SIZE {
+                if check_max_size(*current_size) {
                     let _ = std::fs::remove_file(format!("image_{:04}.jpg", file_index));
                     *output = None;
                     *current_state = State::SEARCHING;
@@ -78,8 +99,25 @@ fn process_chunk(chunk: &[u8], last_byte: u8, current_state: &mut State, output:
     let last = chunk[chunk.len() - 1];
 
     if *current_state == State::COLLECTING {
+        if x == 0xFF && (y == 0xE0 || y == 0xE1) {
+                *saw_valid_segment = true;
+        }
+
+        if header_buffer.len() < 12 {
+            header_buffer.push(last);
+
+            if header_buffer.len() == 12 && !validate_header(header_buffer) {
+                let _ = std::fs::remove_file(format!("image_{:04}.jpg", file_index));
+                *output = None;
+                *current_state = State::SEARCHING;
+                *current_size = 0;
+                header_buffer.clear();
+                return;
+            }
+        }
+
         if let Some(file) = output.as_mut() {
-            if *current_size >= MAX_SIZE {
+            if check_max_size(*current_size) {
                 let _ = std::fs::remove_file(format!("image_{:04}.jpg", file_index));
                 *output = None;
                 *current_state = State::SEARCHING;
@@ -92,10 +130,13 @@ fn process_chunk(chunk: &[u8], last_byte: u8, current_state: &mut State, output:
     }
 }
 
-fn compare_to_marker(x: u8, y: u8, current_state: &mut State, output: &mut Option<File>, file_index: &mut usize) -> bool {
+fn compare_to_marker(x: u8, y: u8, current_state: &mut State, output: &mut Option<File>, file_index: &mut usize, 
+    current_size: &mut usize, header_buffer: &mut Vec<u8>, saw_valid_segment: &mut bool) -> bool {
     if *current_state == State::SEARCHING {
         if x == START_MARKER[0] && y == START_MARKER[1] {
             *current_state = State::COLLECTING;
+            header_buffer.clear();
+            saw_valid_segment = false;
 
             *file_index += 1;
 
@@ -113,6 +154,14 @@ fn compare_to_marker(x: u8, y: u8, current_state: &mut State, output: &mut Optio
         if x == END_MARKER[0] && y == END_MARKER[1] {
             *current_state = State::SEARCHING;
 
+            if !*saw_valid_segment {
+                let _ = std::fs::remove_file(format!("image_{:04}.jpg", file_index));
+                *output = None;
+                *current_state = State::SEARCHING;
+                *current_size = 0;
+                return true;
+            }
+
             if let Some(file) = output.as_mut() {
                 let _ = file.write_all(&END_MARKER);
                 *current_size += 1;
@@ -126,3 +175,17 @@ fn compare_to_marker(x: u8, y: u8, current_state: &mut State, output: &mut Optio
     false
 }
 
+fn check_max_size(current_size: usize) -> bool {
+    current_size >= MAX_SIZE
+}
+
+fn validate_header(header: &[u8]) -> bool {
+    if header.len() < 12 {
+        return false;
+    }
+
+    let is_jfif = &header[6..10] == b"JFIF";
+    let is_exif = header[6..12].starts_with(b"Exif");
+
+    is_jfif || is_exif
+}
