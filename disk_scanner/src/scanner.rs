@@ -4,6 +4,8 @@ use std::io::{BufReader, Read, Write};
 const START_MARKER: [u8; 2] = [0xFF, 0xD8];
 const END_MARKER: [u8; 2] = [0xFF, 0xD9];
 
+const MAX_SIZE: usize = 20 * 1024 * 1024;
+
 #[derive(PartialEq, Debug)]
 enum State{
     SEARCHING,
@@ -20,6 +22,7 @@ pub fn scan(path: &str, chunk_size: usize) -> std::io::Result<()> {
 
     let mut file_index = 0;
     let mut output: Option<File> = None;
+    let mut current_size: usize = 0;
 
     loop{
         let bytes_read = reader.read(&mut buffer)?;
@@ -28,13 +31,13 @@ pub fn scan(path: &str, chunk_size: usize) -> std::io::Result<()> {
             break;
         }
 
-        process_chunk(&buffer[..bytes_read], last_byte, &mut current_state, &mut output, &mut file_index,);
+        process_chunk(&buffer[..bytes_read], last_byte, &mut current_state, &mut output, &mut file_index, &mut current_size);
         last_byte = buffer[bytes_read - 1];
     }
     Ok(())
 }
 
-fn process_chunk(chunk: &[u8], last_byte: u8, current_state: &mut State, output: &mut Option<File>, file_index: &mut usize) {
+fn process_chunk(chunk: &[u8], last_byte: u8, current_state: &mut State, output: &mut Option<File>, file_index: &mut usize, current_size: &mut usize) {
     let mut skip_next = false;
 
     if compare_to_marker(last_byte, chunk[0], current_state, output, file_index) {
@@ -58,6 +61,14 @@ fn process_chunk(chunk: &[u8], last_byte: u8, current_state: &mut State, output:
 
         if *current_state == State::COLLECTING && !is_marker && !skip_next{
             if let Some(file) = output.as_mut() {
+
+                if *current_size >= MAX_SIZE {
+                    let _ = std::fs::remove_file(format!("image_{:04}.jpg", file_index));
+                    *output = None;
+                    *current_state = State::SEARCHING;
+                    *current_size = 0;
+                    return;
+                }
                 let _ = file.write_all(&[x]);
             }
         }
@@ -67,6 +78,13 @@ fn process_chunk(chunk: &[u8], last_byte: u8, current_state: &mut State, output:
 
     if *current_state == State::COLLECTING {
         if let Some(file) = output.as_mut() {
+            if *current_size >= MAX_SIZE {
+                let _ = std::fs::remove_file(format!("image_{:04}.jpg", file_index));
+                *output = None;
+                *current_state = State::SEARCHING;
+                *current_size = 0;
+                return;
+            }
             let _ = file.write_all(&[last]);
         }
     }
