@@ -1,4 +1,6 @@
 disk.img
+imgs/
+mnt/
 
 dataset/
 venv/
