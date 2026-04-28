@@ -70,6 +70,7 @@ fn process_chunk(chunk: &[u8], last_byte: u8, current_state: &mut State, output:
                     return;
                 }
                 let _ = file.write_all(&[x]);
+                *current_size += 1;
             }
         }
     }
@@ -86,6 +87,7 @@ fn process_chunk(chunk: &[u8], last_byte: u8, current_state: &mut State, output:
                 return;
             }
             let _ = file.write_all(&[last]);
+            *current_size += 1;
         }
     }
 }
@@ -102,6 +104,7 @@ fn compare_to_marker(x: u8, y: u8, current_state: &mut State, output: &mut Optio
 
             if let Some(file) = output.as_mut() {
                 let _ = file.write_all(&START_MARKER);
+                *current_size += 1;
             }
 
             return true;
@@ -112,6 +115,7 @@ fn compare_to_marker(x: u8, y: u8, current_state: &mut State, output: &mut Optio
 
             if let Some(file) = output.as_mut() {
                 let _ = file.write_all(&END_MARKER);
+                *current_size += 1;
             }
 
             *output = None;
