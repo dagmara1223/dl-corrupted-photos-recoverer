@@ -99,9 +99,6 @@ header_buffer: &mut Vec<u8>, saw_valid_segment: &mut bool) {
     let last = chunk[chunk.len() - 1];
 
     if *current_state == State::COLLECTING {
-        if x == 0xFF && (y == 0xE0 || y == 0xE1) {
-                *saw_valid_segment = true;
-        }
 
         if header_buffer.len() < 12 {
             header_buffer.push(last);
@@ -136,7 +133,7 @@ fn compare_to_marker(x: u8, y: u8, current_state: &mut State, output: &mut Optio
         if x == START_MARKER[0] && y == START_MARKER[1] {
             *current_state = State::COLLECTING;
             header_buffer.clear();
-            saw_valid_segment = false;
+            *saw_valid_segment = false;
 
             *file_index += 1;
 
