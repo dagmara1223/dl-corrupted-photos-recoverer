@@ -1,10 +1,16 @@
 use image::{imageops::FilterType, GenericImageView};
 use image::{ImageBuffer, RgbImage};
 
-pub fn jpeg_to_tensor(path: &str) -> Vec<f32> {
-    let img = image::open(path)
-        .expect("Invalid image")
-        .to_rgb8();
+pub struct ImageTensor {
+    pub data: Vec<f32>,
+    pub width: u32,
+    pub height: u32,
+}
+
+pub fn jpeg_to_tensor(path: &str) -> ImageTensor {
+    let img = image::open(path).expect("Invalid image").to_rgb8();
+
+    let (w, h) = img.dimensions();
 
     let resized = image::imageops::resize(&img, 256, 256, FilterType::Triangle);
 
@@ -19,21 +25,20 @@ pub fn jpeg_to_tensor(path: &str) -> Vec<f32> {
         }
     }
 
-    tensor
+    ImageTensor {
+        data: tensor,
+        width: w,
+        height: h,
+    }
 }
 
-pub fn tensor_to_image(tensor: Vec<f32>, path: &str){
-    let width = 256;
-    let height = 256;
-    let channels = 3;
+pub fn tensor_to_image(tensor: Vec<f32>, path: &str, width: u32, height: u32){
+    let hw = 256 * 256;
+    
+    let mut img: Vec<u8> = vec![0; hw * 3];
+    assert_eq!(tensor.len(), hw * 3, "unexpected tensor size");
 
-    assert_eq!(tensor.len(), width * height * channels);
-
-    let mut img: Vec<u8> = vec![0; width * height * channels];
-
-    let hw = width * height;
-
-    for c in 0..channels {
+    for c in 0..3 {
         for i in 0..hw {
             let v = tensor[c * hw + i];
 
@@ -43,8 +48,15 @@ pub fn tensor_to_image(tensor: Vec<f32>, path: &str){
         }
     }
 
-    let img = RgbImage::from_raw(width as u32, height as u32, img)
+    let img = RgbImage::from_raw(256 as u32, 256 as u32, img)
         .expect("invalid image buffer");
 
-    img.save(path).unwrap();
+    let resized = image::imageops::resize(
+        &img,
+        width,
+        height,
+        FilterType::Triangle,
+    );
+
+    resized.save(path).unwrap();
 }

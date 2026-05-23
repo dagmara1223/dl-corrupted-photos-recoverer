@@ -21,14 +21,14 @@ fn main() {
             continue;
         }
 
-        let tensor = processing::jpeg_to_tensor(&img_path);
+        let input = processing::jpeg_to_tensor(&img_path);
 
-        let restored = model.restore(tensor);
+        let restored = model.restore(input.data);
 
         let file_name = std::path::Path::new(&img_path).file_name().unwrap().to_str().unwrap();
 
         let dest = format!("fixed_jpgs/{}", file_name);
 
-        processing::tensor_to_image(restored, &dest);
+        processing::tensor_to_image(restored, &dest, input.width, input.height);
     }
 }

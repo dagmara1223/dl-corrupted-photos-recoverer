@@ -115,7 +115,7 @@ fn compare_to_marker(x: u8, y: u8, current_state: &mut State, output: &mut Optio
             *saw_valid_segment = false;
 
             *file_index += 1;
-            println!("START detected");
+            println!("JPEG detected");
 
             let filename = format!("raw_jpgs/image_{:04}.jpg", *file_index);
             let file = File::create(&filename).unwrap();
