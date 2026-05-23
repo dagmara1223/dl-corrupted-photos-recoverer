@@ -1,6 +1,6 @@
 mod scanner;
 mod model;
-mod preprocessing;
+mod processing;
 
 use std::fs;
 use std::env;
@@ -21,20 +21,14 @@ fn main() {
             continue;
         }
 
-        let tensor = preprocessing::jpeg_to_tensor(&img_path);
+        let tensor = processing::jpeg_to_tensor(&img_path);
 
-        let score = model.predict(tensor);
+        let restored = model.restore(tensor);
 
-        if score > 0.5 {
-            let file_name = std::path::Path::new(&img_path)
-                .file_name()
-                .unwrap()
-                .to_str()
-                .unwrap();
+        let file_name = std::path::Path::new(&img_path).file_name().unwrap().to_str().unwrap();
 
-            let dest = format!("fixed_jpgs/{}", file_name);
+        let dest = format!("fixed_jpgs/{}", file_name);
 
-            std::fs::copy(&img_path, &dest);
-        }
+        processing::tensor_to_image(restored, &dest);
     }
 }

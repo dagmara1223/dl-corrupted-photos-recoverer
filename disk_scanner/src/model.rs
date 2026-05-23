@@ -16,7 +16,7 @@ impl Model {
         Self { session }
     }
 
-    pub fn predict(&mut self, input: Vec<f32>) -> f32 {
+    pub fn restore(&mut self, input: Vec<f32>) -> Vec<f32> {
         let input = Array::from_shape_vec((1, 3, 256, 256), input).unwrap();
 
         let input = Value::from_array(input).unwrap();
@@ -25,6 +25,6 @@ impl Model {
 
         let out = outputs[0].try_extract_tensor::<f32>().unwrap();
 
-        out.1[0]
+        out.1.to_vec()
     }
 }
