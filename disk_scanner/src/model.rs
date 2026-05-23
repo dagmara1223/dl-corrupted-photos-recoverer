@@ -21,7 +21,7 @@ impl Model {
 
         let input = Value::from_array(input).unwrap();
 
-        let outputs = self.session.run(vec![("input", input),]).unwrap();
+        let outputs = self.session.run(vec![("input_image", input),]).unwrap();
 
         let out = outputs[0].try_extract_tensor::<f32>().unwrap();
 
