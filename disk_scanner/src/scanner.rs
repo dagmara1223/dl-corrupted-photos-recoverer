@@ -12,7 +12,9 @@ enum State{
     COLLECTING
 }
 
-pub fn scan(path: &str, chunk_size: usize) -> std::io::Result<()> {
+pub fn scan(path: &str, chunk_size: usize) -> std::io::Result<Vec<String>> {
+    let mut recovered_files: Vec<String> = Vec::new();
+
     let image = File::open(path)?;
     let mut reader = BufReader::new(image);
     let mut buffer = vec![0u8; chunk_size];
@@ -34,17 +36,19 @@ pub fn scan(path: &str, chunk_size: usize) -> std::io::Result<()> {
             break;
         }
 
-        process_chunk(&buffer[..bytes_read], last_byte, &mut current_state, &mut output, &mut file_index, &mut current_size, &mut header_buffer, &mut saw_valid_segment);
-        last_byte = buffer[bytes_read - 1];
+        process_chunk(&buffer[..bytes_read], last_byte, &mut current_state, &mut output, &mut file_index, &mut current_size, &mut header_buffer, &mut saw_valid_segment, &mut recovered_files,);
+        if bytes_read > 0 {
+            last_byte = buffer[bytes_read - 1];
+        }
     }
-    Ok(())
+    Ok(recovered_files)
 }
 
 fn process_chunk(chunk: &[u8], last_byte: u8, current_state: &mut State, output: &mut Option<File>, file_index: &mut usize, current_size: &mut usize,
-header_buffer: &mut Vec<u8>, saw_valid_segment: &mut bool) {
+header_buffer: &mut Vec<u8>, saw_valid_segment: &mut bool, recovered_files: &mut Vec<String>) {
     let mut skip_next = false;
 
-    if compare_to_marker(last_byte, chunk[0], current_state, output, file_index, current_size, header_buffer, saw_valid_segment) {
+    if compare_to_marker(last_byte, chunk[0], current_state, output, file_index, current_size, header_buffer, saw_valid_segment, recovered_files) {
         println!("{:?}, Chunk at boundary", current_state);
     }
 
@@ -57,7 +61,7 @@ header_buffer: &mut Vec<u8>, saw_valid_segment: &mut bool) {
         let x = chunk[i];
         let y = chunk[i + 1];
 
-        let is_marker = compare_to_marker(x, y, current_state, output, file_index, current_size, header_buffer, saw_valid_segment);
+        let is_marker = compare_to_marker(x, y, current_state, output, file_index, current_size, header_buffer, saw_valid_segment, recovered_files);
 
         if is_marker{
             skip_next = true;
@@ -68,7 +72,7 @@ header_buffer: &mut Vec<u8>, saw_valid_segment: &mut bool) {
                 header_buffer.push(x);
 
                 if header_buffer.len() == 12 && !validate_header(header_buffer) {
-                    let _ = std::fs::remove_file(format!("image_{:04}.jpg", file_index));
+                    let _ = std::fs::remove_file(format!("raw_jpgs/image_{:04}.jpg", file_index));
                     *output = None;
                     *current_state = State::SEARCHING;
                     *current_size = 0;
@@ -84,7 +88,7 @@ header_buffer: &mut Vec<u8>, saw_valid_segment: &mut bool) {
             if let Some(file) = output.as_mut() {
 
                 if check_max_size(*current_size) {
-                    let _ = std::fs::remove_file(format!("image_{:04}.jpg", file_index));
+                    let _ = std::fs::remove_file(format!("raw_jpgs/image_{:04}.jpg", file_index));
                     *output = None;
                     *current_state = State::SEARCHING;
                     *current_size = 0;
@@ -104,7 +108,7 @@ header_buffer: &mut Vec<u8>, saw_valid_segment: &mut bool) {
             header_buffer.push(last);
 
             if header_buffer.len() == 12 && !validate_header(header_buffer) {
-                let _ = std::fs::remove_file(format!("image_{:04}.jpg", file_index));
+                let _ = std::fs::remove_file(format!("raw_jpgs/image_{:04}.jpg", file_index));
                 *output = None;
                 *current_state = State::SEARCHING;
                 *current_size = 0;
@@ -115,7 +119,7 @@ header_buffer: &mut Vec<u8>, saw_valid_segment: &mut bool) {
 
         if let Some(file) = output.as_mut() {
             if check_max_size(*current_size) {
-                let _ = std::fs::remove_file(format!("image_{:04}.jpg", file_index));
+                let _ = std::fs::remove_file(format!("raw_jpgs/image_{:04}.jpg", file_index));
                 *output = None;
                 *current_state = State::SEARCHING;
                 *current_size = 0;
@@ -128,7 +132,7 @@ header_buffer: &mut Vec<u8>, saw_valid_segment: &mut bool) {
 }
 
 fn compare_to_marker(x: u8, y: u8, current_state: &mut State, output: &mut Option<File>, file_index: &mut usize, 
-    current_size: &mut usize, header_buffer: &mut Vec<u8>, saw_valid_segment: &mut bool) -> bool {
+    current_size: &mut usize, header_buffer: &mut Vec<u8>, saw_valid_segment: &mut bool, recovered_files: &mut Vec<String>) -> bool {
     if *current_state == State::SEARCHING {
         if x == START_MARKER[0] && y == START_MARKER[1] {
             *current_state = State::COLLECTING;
@@ -137,8 +141,11 @@ fn compare_to_marker(x: u8, y: u8, current_state: &mut State, output: &mut Optio
 
             *file_index += 1;
 
-            let filename = format!("image_{:04}.jpg", *file_index);
-            *output = Some(File::create(filename).unwrap());
+            let filename = format!("raw_jpgs/image_{:04}.jpg", *file_index);
+            let file = File::create(&filename).unwrap();
+
+            *output = Some(file);
+            recovered_files.push(filename.clone());
 
             if let Some(file) = output.as_mut() {
                 let _ = file.write_all(&START_MARKER);
@@ -152,7 +159,7 @@ fn compare_to_marker(x: u8, y: u8, current_state: &mut State, output: &mut Optio
             *current_state = State::SEARCHING;
 
             if !*saw_valid_segment {
-                let _ = std::fs::remove_file(format!("image_{:04}.jpg", file_index));
+                let _ = std::fs::remove_file(format!("raw_jpgs/image_{:04}.jpg", file_index));
                 *output = None;
                 *current_state = State::SEARCHING;
                 *current_size = 0;
