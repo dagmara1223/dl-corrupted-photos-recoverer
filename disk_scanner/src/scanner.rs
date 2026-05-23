@@ -68,18 +68,6 @@ header_buffer: &mut Vec<u8>, saw_valid_segment: &mut bool, recovered_files: &mut
         }
 
         if *current_state == State::COLLECTING && !is_marker && !skip_next{
-            if header_buffer.len() < 12 {
-                header_buffer.push(x);
-
-                if header_buffer.len() == 12 && !validate_header(header_buffer) {
-                    let _ = std::fs::remove_file(format!("raw_jpgs/image_{:04}.jpg", file_index));
-                    *output = None;
-                    *current_state = State::SEARCHING;
-                    *current_size = 0;
-                    header_buffer.clear();
-                    return;
-                }
-            }
 
             if x == 0xFF && (y == 0xE0 || y == 0xE1) {
                 *saw_valid_segment = true;
@@ -104,19 +92,6 @@ header_buffer: &mut Vec<u8>, saw_valid_segment: &mut bool, recovered_files: &mut
 
     if *current_state == State::COLLECTING {
 
-        if header_buffer.len() < 12 {
-            header_buffer.push(last);
-
-            if header_buffer.len() == 12 && !validate_header(header_buffer) {
-                let _ = std::fs::remove_file(format!("raw_jpgs/image_{:04}.jpg", file_index));
-                *output = None;
-                *current_state = State::SEARCHING;
-                *current_size = 0;
-                header_buffer.clear();
-                return;
-            }
-        }
-
         if let Some(file) = output.as_mut() {
             if check_max_size(*current_size) {
                 let _ = std::fs::remove_file(format!("raw_jpgs/image_{:04}.jpg", file_index));
@@ -140,6 +115,7 @@ fn compare_to_marker(x: u8, y: u8, current_state: &mut State, output: &mut Optio
             *saw_valid_segment = false;
 
             *file_index += 1;
+            println!("START detected");
 
             let filename = format!("raw_jpgs/image_{:04}.jpg", *file_index);
             let file = File::create(&filename).unwrap();

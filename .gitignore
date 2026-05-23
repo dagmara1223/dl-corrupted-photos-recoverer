@@ -2,6 +2,10 @@ disk.img
 imgs/
 mnt/
 
+fixed_jogs/
+raw_jpgs/
+imgs/
+
 dataset/
 venv/
 .env
