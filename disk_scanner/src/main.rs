@@ -14,21 +14,21 @@ fn main() {
 
     let recovered = scanner::scan(path, 4096).unwrap();
 
-    let mut model = model::Model::new("unet_model.onnx");
+    let mut model = model::Model::new("unet_final.onnx");
 
     for img_path in recovered{
         if !std::path::Path::new(&img_path).exists(){
             continue;
         }
-
+        println!("To tensor");
         let input = processing::jpeg_to_tensor(&img_path);
-
+        println!("To model");
         let restored = model.restore(input.data);
 
         let file_name = std::path::Path::new(&img_path).file_name().unwrap().to_str().unwrap();
 
         let dest = format!("fixed_jpgs/{}", file_name);
-
+        println!("Rescale");
         processing::tensor_to_image(restored, &dest, input.width, input.height);
     }
 }
