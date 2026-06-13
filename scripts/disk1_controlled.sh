@@ -6,7 +6,7 @@ trap 'echo "ERROR on line $LINENO: $BASH_COMMAND" >&2' ERR
 IMG="disk1.img"
 MNT="mnt9"
 SRC_DIR="../imgs"
-COUNT=5
+COUNT=10
 
 dd if=/dev/zero of="$IMG" bs=1M count=256
 mkfs.vfat "$IMG"
@@ -34,6 +34,11 @@ for ((idx=START; idx<START+COUNT; idx++)); do
 done
 
 sync
+
+rm $MNT/*
+
+sync
+
 sudo umount "$MNT"
 
 echo "Copied $i images starting from $START"

@@ -2,8 +2,8 @@
 set -e
 
 IMG="disk2.img"
-MNT="mnt2a"
 SRC_DIR="../imgs"
+MNT="mnt2a"
 COUNT=20
 
 dd if=/dev/zero of=$IMG bs=1M count=64
@@ -31,14 +31,16 @@ for ((idx=START; idx<START+COUNT; idx++)); do
     fi
 done
 
-rm $MNT/*
-
 sync
 sudo umount $MNT
 
-for i in {1..10}; do
-    OFFSET=$((RANDOM % 60))
-    dd if=/dev/urandom of=$IMG bs=1M count=1 seek=$OFFSET conv=notrunc
+
+FILE_SIZE=$(stat -c%s "$IMG")
+BLOCKS=$((FILE_SIZE / 4096))
+
+for ((i=0; i<20; i++)); do
+    OFFSET=$(( (i * BLOCKS) / 20 ))
+    dd if=/dev/urandom of=$IMG bs=32 count=1 seek=$OFFSET conv=notrunc status=none
 done
 
-echo "Script 2 done: full deletion + random overwrites"
+echo "Done: controlled mild corruption"

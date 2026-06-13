@@ -143,7 +143,9 @@ fn compare_to_marker(
     // START
     if *current_state == State::SEARCHING {
         if x == START_MARKER[0] && y == START_MARKER[1] {
+
             *current_state = State::COLLECTING;
+            println!("JPG found");
             *saw_valid_segment = false;
 
             *file_index += 1;

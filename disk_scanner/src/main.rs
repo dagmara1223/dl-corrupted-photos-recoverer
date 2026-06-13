@@ -20,15 +20,24 @@ fn main() {
         if !std::path::Path::new(&img_path).exists(){
             continue;
         }
-        println!("To tensor");
-        let input = processing::jpeg_to_tensor(&img_path);
-        println!("To model");
+
+        let input = match std::panic::catch_unwind(|| {
+            processing::jpeg_to_tensor(&img_path)
+        }) {
+            Ok(v) => v,
+            Err(_) => {
+                println!("Panic while processing image: {}", img_path);
+                continue;
+            }
+        };
+
         let restored = model.restore(input.data);
 
         let file_name = std::path::Path::new(&img_path).file_name().unwrap().to_str().unwrap();
 
         let dest = format!("fixed_jpgs/{}", file_name);
-        println!("Rescale");
+
         processing::tensor_to_image(restored, &dest, input.width, input.height);
     }
+    println!("Done")
 }
